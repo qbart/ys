@@ -1,0 +1,14 @@
+name: Acme Corp
+active: true
+employees:
+  - name: Alice
+    age: 30
+    department: Engineering
+  - name: Bob
+    age: 25
+    department: Marketing
+address:
+  street: 456 Oak Ave
+  city: Portland
+  zip: "97201"
+rating: 4.5

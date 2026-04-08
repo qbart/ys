@@ -1,39 +1,50 @@
-# PRD: yamlschema - YAML Schema Validator for Go
+# PRD: `ys` — YAML Schema Validator for Go
 
 ## Overview
 
-`yamlschema` is a Go library (package `ys`) that allows developers to define YAML schemas in Go code and validate YAML documents against them. The library prioritizes ease of use and code readability.
+`ys` is a Go library that validates YAML documents against schemas defined in Go code. Schemas use a developer-friendly DSL that reads naturally and supports nested objects, arrays, required/optional fields, and type checking.
 
-**Module path:** `github.com/qbart/yamlschema`
-**Package name:** `ys`
+## Goals
 
-## Core API Design
+- **Developer-friendly DSL**: Schema definitions should be easy to read and write in Go
+- **Rich error reporting**: Return structured errors with line numbers from the YAML source
+- **Type safety**: Validate strings, integers, floats, booleans, arrays, objects
+- **Nested structures**: Support deeply nested objects and arrays with their own schemas
+- **Required/Optional**: Fields can be marked as required or optional at any nesting level
+
+## API Design
 
 ### Schema Definition
 
 ```go
-schema := ys.Schema{
-    "name":    ys.String().Required(),
-    "age":     ys.Int().Optional(),
-    "email":   ys.String().Required(),
-    "tags":    ys.Array(ys.String()),
-    "address": ys.Object(ys.Schema{
-        "street": ys.String().Required(),
-        "city":   ys.String().Required(),
-        "zip":    ys.String().Optional(),
-    }),
-}
+schema := ys.Object(
+    ys.Required("name", ys.String()),
+    ys.Required("age", ys.Int()),
+    ys.Optional("email", ys.String()),
+    ys.Required("address", ys.Object(
+        ys.Required("street", ys.String()),
+        ys.Required("city", ys.String()),
+        ys.Optional("zip", ys.String()),
+    )),
+    ys.Optional("tags", ys.Array(ys.String())),
+)
 ```
 
 ### Validation
 
 ```go
-result, err := schema.Validate(yamlBytes)
-// err is for parse/system errors (invalid YAML, etc.)
-// result contains validation outcome
+result, err := ys.Validate(yamlBytes, schema)
+if err != nil {
+    // parse error or internal error
+}
+if !result.OK {
+    for _, e := range result.Errors {
+        fmt.Printf("line %d: %s\n", e.Line, e.Message)
+    }
+}
 ```
 
-### Result
+### Core Types
 
 ```go
 type Result struct {
@@ -42,197 +53,51 @@ type Result struct {
 }
 
 type SchemaError struct {
-    Line    int
-    Path    string   // e.g. "address.street"
-    Message string
+    Path    string // e.g. "address.street"
+    Line    int    // line number in YAML source
+    Message string // human-readable error message
 }
 ```
 
-## Type System
+### Schema Types
 
-| Builder     | Description                |
-|-------------|----------------------------|
-| `ys.String()` | String value             |
-| `ys.Int()`    | Integer value            |
-| `ys.Float()`  | Float value              |
-| `ys.Bool()`   | Boolean value            |
-| `ys.Array(T)` | Array of type T          |
-| `ys.Object(S)`| Nested object with schema|
-| `ys.Any()`    | Any value (skip type check)|
+| Function | Description |
+|----------|-------------|
+| `ys.String()` | Validates string values |
+| `ys.Int()` | Validates integer values |
+| `ys.Float()` | Validates float values |
+| `ys.Bool()` | Validates boolean values |
+| `ys.Object(fields...)` | Validates an object with given fields |
+| `ys.Array(itemSchema)` | Validates an array where each item matches schema |
+| `ys.Any()` | Accepts any value |
 
-Each type supports:
-- `.Required()` — field must be present (default)
-- `.Optional()` — field may be absent
+### Field Definitions
 
-## YAML Seed Test Cases
+| Function | Description |
+|----------|-------------|
+| `ys.Required(name, schema)` | Field must be present and match schema |
+| `ys.Optional(name, schema)` | Field may be absent; if present must match schema |
 
-### Seed 1: Simple flat object (string fields only)
-```yaml
-name: "Alice"
-email: "alice@example.com"
-```
+## Non-Goals (v1)
 
-### Seed 2: Mixed types (string, int, bool)
-```yaml
-name: "Bob"
-age: 30
-active: true
-```
+- Custom validation functions / constraints (min, max, regex, etc.)
+- Schema composition / references
+- YAML generation from schema
+- Loading schemas from YAML/JSON files
 
-### Seed 3: Optional fields (present and absent)
-```yaml
-name: "Charlie"
-# bio is optional and absent
-```
+## Implementation Plan
 
-### Seed 4: Required field missing
-```yaml
-# name is required but missing
-age: 25
-```
-
-### Seed 5: Wrong type
-```yaml
-name: 123        # expected string
-age: "not a num" # expected int
-```
-
-### Seed 6: Nested object
-```yaml
-name: "Diana"
-address:
-  street: "123 Main St"
-  city: "Springfield"
-  zip: "62704"
-```
-
-### Seed 7: Nested object with missing required field
-```yaml
-name: "Eve"
-address:
-  street: "456 Elm St"
-  # city is required but missing
-```
-
-### Seed 8: Array of scalars
-```yaml
-name: "Frank"
-tags:
-  - "go"
-  - "yaml"
-  - "dev"
-```
-
-### Seed 9: Array with wrong element type
-```yaml
-name: "Grace"
-tags:
-  - 1
-  - 2
-  - 3
-```
-
-### Seed 10: Array of objects
-```yaml
-name: "Hank"
-friends:
-  - name: "Ivy"
-    age: 28
-  - name: "Jack"
-    age: 32
-```
-
-### Seed 11: Deeply nested objects
-```yaml
-company:
-  name: "Acme"
-  hq:
-    address:
-      street: "789 Oak Ave"
-      city: "Metropolis"
-```
-
-### Seed 12: Empty document
-```yaml
-```
-
-### Seed 13: Null values
-```yaml
-name: null
-age: null
-```
-
-### Seed 14: Extra fields not in schema
-```yaml
-name: "Kelly"
-unknown_field: "should this error?"
-```
-
-### Seed 15: Complex mixed (arrays of objects with nested arrays)
-```yaml
-name: "Leo"
-projects:
-  - title: "Alpha"
-    tags:
-      - "web"
-      - "api"
-    members:
-      - name: "Mia"
-      - name: "Noah"
-  - title: "Beta"
-    tags:
-      - "cli"
-    members:
-      - name: "Olivia"
-```
-
-### Seed 16: Float values
-```yaml
-name: "Pat"
-score: 9.5
-ratio: 0.75
-```
-
-### Seed 17: Boolean validation
-```yaml
-enabled: true
-verbose: "yes"  # not a bool
-```
-
-### Seed 18: Any type
-```yaml
-metadata: "could be anything"
-data: 42
-flag: true
-```
-
-## Edge Cases to Cover
-
-- Invalid YAML syntax (returns error, not result)
-- Empty byte slice
-- YAML with only comments
-- Unicode field names and values
-- Very large nested structures
-- Array at root level (not an object) — should error
-- Numeric strings vs actual numbers
-- Trailing whitespace / multiline strings
-
-## Implementation Plan (TDD Increments)
-
-1. **Project scaffolding** — go.mod, empty package, first test file
-2. **Schema type + String().Required()** — validate a single required string field
-3. **Result/SchemaError structs** — return structured errors with line numbers
-4. **Multiple string fields** — validate documents with several fields
-5. **Optional fields** — `.Optional()` modifier, absent fields pass
-6. **Required field missing** — proper error with path and line
-7. **Int type** — `ys.Int()`, type mismatch errors
-8. **Bool type** — `ys.Bool()`
-9. **Float type** — `ys.Float()`
-10. **Nested objects** — `ys.Object(schema)`
-11. **Arrays of scalars** — `ys.Array(ys.String())`
-12. **Arrays of objects** — `ys.Array(ys.Object(schema))`
-13. **Deeply nested structures** — multi-level nesting
-14. **Any type** — `ys.Any()`
-15. **Edge cases** — invalid YAML, empty input, null values, extra fields, etc.
-16. **Line number tracking** — accurate line reporting for all error types
-17. **Complex integration tests** — seeds 15, full coverage
+1. Project scaffolding (go module, basic types)
+2. String type validation
+3. Int type validation
+4. Float type validation
+5. Bool type validation
+6. Any type validation
+7. Required/Optional field definitions
+8. Object validation (flat)
+9. Nested object validation
+10. Array validation
+11. Line number tracking in errors
+12. Edge cases (empty docs, null values, type mismatches)
+13. Complex nested schemas (arrays of objects, etc.)
+14. Final integration tests with realistic YAML samples

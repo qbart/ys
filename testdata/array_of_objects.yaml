@@ -1,0 +1,10 @@
+users:
+  - name: Alice
+    email: alice@example.com
+    roles:
+      - admin
+      - user
+  - name: Bob
+    email: bob@example.com
+    roles:
+      - user
