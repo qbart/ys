@@ -453,3 +453,87 @@ func TestNested_DeeplyNested_MissingField(t *testing.T) {
 		t.Errorf("expected error at path 'config.database.credentials.token', got: %v", result.Errors)
 	}
 }
+
+// --- Array validation ---
+
+func TestArray_ValidStrings(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Optional("tags", Array(String())),
+	)
+	data := readTestData(t, "array_valid.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("expected OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestArray_WrongItemType(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Optional("tags", Array(String())),
+	)
+	data := readTestData(t, "array_wrong_item_type.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for wrong item types in array")
+	}
+	// items at index 1 (42) and 2 (true) should fail
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "tags[1]" {
+		t.Errorf("expected path 'tags[1]', got %q", result.Errors[0].Path)
+	}
+	if result.Errors[1].Path != "tags[2]" {
+		t.Errorf("expected path 'tags[2]', got %q", result.Errors[1].Path)
+	}
+}
+
+func TestArray_Empty(t *testing.T) {
+	schema := Object(
+		Required("items", Array(String())),
+	)
+	result, err := Validate([]byte("items: []"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("empty array should be valid, got errors: %v", result.Errors)
+	}
+}
+
+func TestArray_ExpectedArrayGotScalar(t *testing.T) {
+	schema := Object(
+		Required("items", Array(String())),
+	)
+	result, err := Validate([]byte("items: hello"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail when scalar given for array")
+	}
+	if result.Errors[0].Message != "expected array, got string" {
+		t.Errorf("unexpected message: %s", result.Errors[0].Message)
+	}
+}
+
+func TestArray_OfInts(t *testing.T) {
+	schema := Object(
+		Required("nums", Array(Int())),
+	)
+	result, err := Validate([]byte("nums:\n  - 1\n  - 2\n  - 3"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("expected OK, got errors: %v", result.Errors)
+	}
+}
