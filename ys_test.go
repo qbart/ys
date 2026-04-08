@@ -733,3 +733,146 @@ func TestEdge_ZeroValues(t *testing.T) {
 		t.Errorf("zero values should be valid, got errors: %v", result.Errors)
 	}
 }
+
+// --- Complex schemas ---
+
+func TestComplex_ArrayOfObjects(t *testing.T) {
+	schema := Object(
+		Required("users", Array(Object(
+			Required("name", String()),
+			Required("email", String()),
+			Optional("roles", Array(String())),
+		))),
+	)
+	data := readTestData(t, "array_of_objects.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("expected OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestComplex_ArrayOfObjects_Errors(t *testing.T) {
+	schema := Object(
+		Required("users", Array(Object(
+			Required("name", String()),
+			Required("email", String()),
+			Required("age", Int()),
+		))),
+	)
+	data := readTestData(t, "array_of_objects.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail — missing 'age' in array items")
+	}
+	// Both users lack 'age'
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "users[0].age" {
+		t.Errorf("expected path 'users[0].age', got %q", result.Errors[0].Path)
+	}
+	if result.Errors[1].Path != "users[1].age" {
+		t.Errorf("expected path 'users[1].age', got %q", result.Errors[1].Path)
+	}
+}
+
+func TestComplex_FullDocument_Valid(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("active", Bool()),
+		Required("employees", Array(Object(
+			Required("name", String()),
+			Required("age", Int()),
+			Required("department", String()),
+		))),
+		Required("address", Object(
+			Required("street", String()),
+			Required("city", String()),
+			Optional("zip", String()),
+		)),
+		Required("rating", Float()),
+	)
+	data := readTestData(t, "complex_valid.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("expected OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestComplex_FullDocument_MultipleErrors(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("active", Bool()),
+		Required("employees", Array(Object(
+			Required("name", String()),
+			Required("age", Int()),
+			Required("department", String()),
+		))),
+		Required("address", Object(
+			Required("street", String()),
+			Required("city", String()),
+		)),
+		Required("rating", Float()),
+	)
+	data := readTestData(t, "complex_errors.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail")
+	}
+	// Expect errors: name(int not string), active(string not bool),
+	// employees[0].age(string not int), employees[1].department(missing),
+	// address.city(missing), rating(string not float)
+	if len(result.Errors) < 5 {
+		t.Errorf("expected at least 5 errors, got %d: %v", len(result.Errors), result.Errors)
+	}
+
+	// Verify specific paths exist
+	paths := make(map[string]bool)
+	for _, e := range result.Errors {
+		paths[e.Path] = true
+	}
+	expected := []string{"name", "active", "employees[0].age", "employees[1].department", "address.city", "rating"}
+	for _, p := range expected {
+		if !paths[p] {
+			t.Errorf("expected error at path %q, not found in: %v", p, result.Errors)
+		}
+	}
+}
+
+func TestComplex_NestedArraysOfObjects(t *testing.T) {
+	yaml := "teams:\n  - name: Alpha\n    members:\n      - name: Alice\n        role: lead\n      - name: Bob\n        role: dev\n  - name: Beta\n    members:\n      - name: Charlie\n        role: 42"
+	schema := Object(
+		Required("teams", Array(Object(
+			Required("name", String()),
+			Required("members", Array(Object(
+				Required("name", String()),
+				Required("role", String()),
+			))),
+		))),
+	)
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "teams[1].members[0].role" {
+		t.Errorf("expected path 'teams[1].members[0].role', got %q", result.Errors[0].Path)
+	}
+}
