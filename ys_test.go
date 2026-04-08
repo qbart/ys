@@ -621,3 +621,115 @@ func TestLineNumbers_MultipleErrors(t *testing.T) {
 		}
 	}
 }
+
+// --- Edge cases ---
+
+func TestEdge_NullRequiredField(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+	)
+	data := readTestData(t, "null_values.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for null required field")
+	}
+	foundNull := false
+	for _, e := range result.Errors {
+		if e.Path == "name" {
+			foundNull = true
+		}
+	}
+	if !foundNull {
+		t.Errorf("expected error for null 'name' field, got: %v", result.Errors)
+	}
+}
+
+func TestEdge_NullOptionalField(t *testing.T) {
+	schema := Object(
+		Required("age", Int()),
+		Optional("name", String()),
+	)
+	data := readTestData(t, "null_values.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("null optional field should be OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestEdge_EmptyDocument(t *testing.T) {
+	schema := Object(Required("name", String()))
+	data := readTestData(t, "empty.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for empty document")
+	}
+}
+
+func TestEdge_InvalidYAML(t *testing.T) {
+	_, err := Validate([]byte(":\n  :\n    - [invalid"), Object())
+	if err != nil {
+		// parse error is acceptable
+		return
+	}
+	// If it parses, it should at least not panic
+}
+
+func TestEdge_ObjectWithNoFields(t *testing.T) {
+	schema := Object()
+	result, err := Validate([]byte("name: hello\nage: 30"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("object with no field constraints should accept any object, got errors: %v", result.Errors)
+	}
+}
+
+func TestEdge_BoolAsString(t *testing.T) {
+	// In YAML, unquoted true/false are bools. Quoted "true" is a string
+	schema := Object(Required("val", String()))
+	result, err := Validate([]byte("val: true"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("unquoted true should be bool, not string")
+	}
+}
+
+func TestEdge_BoolAsStringQuoted(t *testing.T) {
+	schema := Object(Required("val", String()))
+	result, err := Validate([]byte(`val: "true"`), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("quoted 'true' should be string, got errors: %v", result.Errors)
+	}
+}
+
+func TestEdge_ZeroValues(t *testing.T) {
+	schema := Object(
+		Required("count", Int()),
+		Required("rate", Float()),
+		Required("active", Bool()),
+		Required("name", String()),
+	)
+	result, err := Validate([]byte("count: 0\nrate: 0.0\nactive: false\nname: \"\""), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("zero values should be valid, got errors: %v", result.Errors)
+	}
+}
