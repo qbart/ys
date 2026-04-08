@@ -537,3 +537,87 @@ func TestArray_OfInts(t *testing.T) {
 		t.Errorf("expected OK, got errors: %v", result.Errors)
 	}
 }
+
+// --- Line number tracking ---
+
+func TestLineNumbers_WrongType(t *testing.T) {
+	yaml := "name: John\nage: \"not a number\"\nemail: john@test.com"
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+		Optional("email", String()),
+	)
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatal("expected validation to fail")
+	}
+	if result.Errors[0].Line != 2 {
+		t.Errorf("expected error on line 2, got line %d", result.Errors[0].Line)
+	}
+}
+
+func TestLineNumbers_NestedError(t *testing.T) {
+	yaml := "name: Jane\naddress:\n  street: 123 Main St\n  city: 42"
+	schema := Object(
+		Required("name", String()),
+		Required("address", Object(
+			Required("street", String()),
+			Required("city", String()),
+		)),
+	)
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatal("expected validation to fail")
+	}
+	if result.Errors[0].Line != 4 {
+		t.Errorf("expected error on line 4, got line %d", result.Errors[0].Line)
+	}
+}
+
+func TestLineNumbers_ArrayItem(t *testing.T) {
+	yaml := "tags:\n  - hello\n  - 42\n  - world"
+	schema := Object(
+		Required("tags", Array(String())),
+	)
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatal("expected validation to fail")
+	}
+	if result.Errors[0].Line != 3 {
+		t.Errorf("expected error on line 3, got line %d", result.Errors[0].Line)
+	}
+}
+
+func TestLineNumbers_MultipleErrors(t *testing.T) {
+	yaml := "name: 123\nage: hello\nactive: 42"
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+		Required("active", Bool()),
+	)
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatal("expected validation to fail")
+	}
+	if len(result.Errors) != 3 {
+		t.Fatalf("expected 3 errors, got %d: %v", len(result.Errors), result.Errors)
+	}
+	expectedLines := []int{1, 2, 3}
+	for i, e := range result.Errors {
+		if e.Line != expectedLines[i] {
+			t.Errorf("error %d: expected line %d, got %d", i, expectedLines[i], e.Line)
+		}
+	}
+}
