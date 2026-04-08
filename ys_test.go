@@ -345,3 +345,111 @@ func TestObject_ExpectedObjectGotScalar(t *testing.T) {
 		t.Errorf("unexpected message: %s", result.Errors[0].Message)
 	}
 }
+
+// --- Nested object validation ---
+
+func TestNested_Valid(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+		Required("address", Object(
+			Required("street", String()),
+			Required("city", String()),
+			Optional("zip", String()),
+		)),
+	)
+	data := readTestData(t, "nested_valid.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("expected OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestNested_MissingRequiredNested(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+		Required("address", Object(
+			Required("street", String()),
+			Required("city", String()),
+			Optional("zip", String()),
+		)),
+	)
+	data := readTestData(t, "nested_missing_required.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for missing nested required field")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "address.city" {
+		t.Errorf("expected path 'address.city', got %q", result.Errors[0].Path)
+	}
+}
+
+func TestNested_DeeplyNested(t *testing.T) {
+	schema := Object(
+		Required("config", Object(
+			Required("database", Object(
+				Required("host", String()),
+				Required("port", Int()),
+				Required("credentials", Object(
+					Required("username", String()),
+					Required("password", String()),
+				)),
+			)),
+			Required("cache", Object(
+				Required("enabled", Bool()),
+				Required("ttl", Int()),
+			)),
+		)),
+	)
+	data := readTestData(t, "deeply_nested.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("expected OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestNested_DeeplyNested_MissingField(t *testing.T) {
+	schema := Object(
+		Required("config", Object(
+			Required("database", Object(
+				Required("host", String()),
+				Required("port", Int()),
+				Required("credentials", Object(
+					Required("username", String()),
+					Required("password", String()),
+					Required("token", String()),
+				)),
+			)),
+		)),
+	)
+	data := readTestData(t, "deeply_nested.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Path == "config.database.credentials.token" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected error at path 'config.database.credentials.token', got: %v", result.Errors)
+	}
+}
