@@ -242,3 +242,106 @@ func TestAny_AcceptsObject(t *testing.T) {
 		t.Errorf("Any() should accept object, got errors: %v", result.Errors)
 	}
 }
+
+// --- Object validation with Required/Optional ---
+
+func TestObject_SimpleValid(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+		Optional("email", String()),
+	)
+	data := readTestData(t, "simple_valid.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("expected OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestObject_MissingRequired(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+		Optional("email", String()),
+	)
+	data := readTestData(t, "simple_missing_required.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for missing required field")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "age" {
+		t.Errorf("expected path 'age', got %q", result.Errors[0].Path)
+	}
+}
+
+func TestObject_WrongType(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+	)
+	data := readTestData(t, "simple_wrong_type.yaml")
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for wrong type")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "age" {
+		t.Errorf("expected path 'age', got %q", result.Errors[0].Path)
+	}
+}
+
+func TestObject_OptionalMissing_OK(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Optional("email", String()),
+	)
+	result, err := Validate([]byte("name: hello"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("missing optional field should be OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestObject_OptionalPresent_WrongType(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Optional("count", Int()),
+	)
+	result, err := Validate([]byte("name: hello\ncount: nope"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("optional field with wrong type should fail")
+	}
+}
+
+func TestObject_ExpectedObjectGotScalar(t *testing.T) {
+	schema := Object(Required("name", String()))
+	result, err := Validate([]byte("just a string"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail when YAML is scalar not object")
+	}
+	if result.Errors[0].Message != "expected object, got string" {
+		t.Errorf("unexpected message: %s", result.Errors[0].Message)
+	}
+}
