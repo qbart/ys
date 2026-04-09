@@ -288,6 +288,69 @@ func TestIntegration_NullValues(t *testing.T) {
 	}
 }
 
+func TestIntegration_ExtraFields(t *testing.T) {
+	data := loadTestData(t, "extra_fields.yaml")
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+	)
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("extra_fields.yaml should fail — has 'nickname' and 'hobby' not in schema")
+	}
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+	}
+	paths := make(map[string]bool)
+	for _, e := range result.Errors {
+		paths[e.Path] = true
+		if e.Line <= 0 {
+			t.Errorf("error at %q has no line number", e.Path)
+		}
+	}
+	if !paths["nickname"] {
+		t.Error("expected error for 'nickname'")
+	}
+	if !paths["hobby"] {
+		t.Error("expected error for 'hobby'")
+	}
+}
+
+func TestIntegration_ExtraFieldsNested(t *testing.T) {
+	data := loadTestData(t, "extra_fields_nested.yaml")
+	schema := Object(
+		Required("name", String()),
+		Required("age", Int()),
+		Required("address", Object(
+			Required("street", String()),
+			Required("city", String()),
+		)),
+	)
+	result, err := Validate(data, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("extra_fields_nested.yaml should fail — has extra 'country' and 'state' in address")
+	}
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+	}
+	paths := make(map[string]bool)
+	for _, e := range result.Errors {
+		paths[e.Path] = true
+	}
+	if !paths["address.country"] {
+		t.Error("expected error for 'address.country'")
+	}
+	if !paths["address.state"] {
+		t.Error("expected error for 'address.state'")
+	}
+}
+
 // TestIntegration_ErrorMessages verifies error messages are human-readable
 func TestIntegration_ErrorMessages(t *testing.T) {
 	yaml := "name: 42\nage: hello\nitems: notarray"
