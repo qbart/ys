@@ -139,6 +139,23 @@ func (s objectSchema) validate(node *yamlNode, path string) []SchemaError {
 		errs = append(errs, field.Schema.validate(valNode, fieldPath)...)
 	}
 
+	// Check for extra fields not defined in the schema
+	defined := make(map[string]bool, len(s.fields))
+	for _, field := range s.fields {
+		defined[field.Name] = true
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		keyNode := node.Content[i]
+		if !defined[keyNode.Value] {
+			fieldPath := joinPath(path, keyNode.Value)
+			errs = append(errs, SchemaError{
+				Path:    fieldPath,
+				Line:    keyNode.Line,
+				Message: fmt.Sprintf("unknown field %q", keyNode.Value),
+			})
+		}
+	}
+
 	return errs
 }
 

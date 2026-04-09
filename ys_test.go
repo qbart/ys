@@ -443,14 +443,16 @@ func TestNested_DeeplyNested_MissingField(t *testing.T) {
 	if result.OK {
 		t.Error("expected validation to fail")
 	}
-	found := false
+	// Expect: missing token + extra "cache" field under config
+	paths := make(map[string]bool)
 	for _, e := range result.Errors {
-		if e.Path == "config.database.credentials.token" {
-			found = true
-		}
+		paths[e.Path] = true
 	}
-	if !found {
+	if !paths["config.database.credentials.token"] {
 		t.Errorf("expected error at path 'config.database.credentials.token', got: %v", result.Errors)
+	}
+	if !paths["config.cache"] {
+		t.Errorf("expected error at path 'config.cache' (extra field), got: %v", result.Errors)
 	}
 }
 
@@ -690,8 +692,11 @@ func TestEdge_ObjectWithNoFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.OK {
-		t.Errorf("object with no field constraints should accept any object, got errors: %v", result.Errors)
+	if result.OK {
+		t.Error("object with no fields should reject all keys as extra")
+	}
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
 	}
 }
 
@@ -768,17 +773,20 @@ func TestComplex_ArrayOfObjects_Errors(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.OK {
-		t.Error("expected validation to fail — missing 'age' in array items")
+		t.Error("expected validation to fail — missing 'age' and extra 'roles' in array items")
 	}
-	// Both users lack 'age'
-	if len(result.Errors) != 2 {
-		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+	// Both users lack 'age' and both have extra 'roles'
+	if len(result.Errors) != 4 {
+		t.Fatalf("expected 4 errors, got %d: %v", len(result.Errors), result.Errors)
 	}
-	if result.Errors[0].Path != "users[0].age" {
-		t.Errorf("expected path 'users[0].age', got %q", result.Errors[0].Path)
+	paths := make(map[string]bool)
+	for _, e := range result.Errors {
+		paths[e.Path] = true
 	}
-	if result.Errors[1].Path != "users[1].age" {
-		t.Errorf("expected path 'users[1].age', got %q", result.Errors[1].Path)
+	for _, p := range []string{"users[0].age", "users[1].age", "users[0].roles", "users[1].roles"} {
+		if !paths[p] {
+			t.Errorf("expected error at path %q, not found in: %v", p, result.Errors)
+		}
 	}
 }
 
@@ -848,6 +856,145 @@ func TestComplex_FullDocument_MultipleErrors(t *testing.T) {
 		if !paths[p] {
 			t.Errorf("expected error at path %q, not found in: %v", p, result.Errors)
 		}
+	}
+}
+
+// --- Extra field rejection ---
+
+func TestExtraFields_SingleExtraField(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+	)
+	result, err := Validate([]byte("name: hello\nextra: world"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for extra field")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "extra" {
+		t.Errorf("expected path 'extra', got %q", result.Errors[0].Path)
+	}
+	if result.Errors[0].Message != `unknown field "extra"` {
+		t.Errorf("unexpected message: %s", result.Errors[0].Message)
+	}
+}
+
+func TestExtraFields_MultipleExtraFields(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+	)
+	result, err := Validate([]byte("name: hello\nfoo: 1\nbar: 2"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for extra fields")
+	}
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
+	}
+	paths := map[string]bool{}
+	for _, e := range result.Errors {
+		paths[e.Path] = true
+	}
+	if !paths["foo"] {
+		t.Error("expected error for 'foo'")
+	}
+	if !paths["bar"] {
+		t.Error("expected error for 'bar'")
+	}
+}
+
+func TestExtraFields_NestedExtraField(t *testing.T) {
+	schema := Object(
+		Required("address", Object(
+			Required("city", String()),
+		)),
+	)
+	yaml := "address:\n  city: Portland\n  country: US"
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for extra nested field")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "address.country" {
+		t.Errorf("expected path 'address.country', got %q", result.Errors[0].Path)
+	}
+}
+
+func TestExtraFields_InArrayOfObjects(t *testing.T) {
+	schema := Object(
+		Required("users", Array(Object(
+			Required("name", String()),
+		))),
+	)
+	yaml := "users:\n  - name: Alice\n    extra: val\n  - name: Bob"
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("expected validation to fail for extra field in array item")
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(result.Errors), result.Errors)
+	}
+	if result.Errors[0].Path != "users[0].extra" {
+		t.Errorf("expected path 'users[0].extra', got %q", result.Errors[0].Path)
+	}
+}
+
+func TestExtraFields_LineNumber(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+	)
+	yaml := "name: hello\nextra: world"
+	result, err := Validate([]byte(yaml), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatal("expected validation to fail")
+	}
+	if result.Errors[0].Line != 2 {
+		t.Errorf("expected error on line 2, got line %d", result.Errors[0].Line)
+	}
+}
+
+func TestExtraFields_NoExtraFields_OK(t *testing.T) {
+	schema := Object(
+		Required("name", String()),
+		Optional("age", Int()),
+	)
+	result, err := Validate([]byte("name: hello\nage: 30"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Errorf("no extra fields should be OK, got errors: %v", result.Errors)
+	}
+}
+
+func TestExtraFields_EmptyObjectSchema(t *testing.T) {
+	schema := Object()
+	result, err := Validate([]byte("name: hello\nage: 30"), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Error("Object() with no fields should reject all keys as extra")
+	}
+	if len(result.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %v", len(result.Errors), result.Errors)
 	}
 }
 
